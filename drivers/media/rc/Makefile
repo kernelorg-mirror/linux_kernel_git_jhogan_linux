@@ -1,4 +1,5 @@
-rc-core-objs	:= rc-main.o rc-ir-raw.o
+rc-core-$(CONFIG_IR_RAW_DEBUG) += ir-raw-debug.o
+rc-core-objs	:= rc-main.o rc-ir-raw.o $(rc-core-y)
 
 obj-y += keymaps/
 

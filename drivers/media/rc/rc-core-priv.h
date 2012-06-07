@@ -115,6 +115,20 @@ struct ir_raw_event_ctrl {
 		unsigned count;
 		u32 durations[16];
 	} xmp;
+
+#ifdef CONFIG_IR_RAW_DEBUG
+#define IR_DEBUG_SAMPLES	128
+#define IR_DEBUG_DECODERS	8
+	struct debug_dec {
+		spinlock_t	lock;
+		unsigned int	num_events;
+		unsigned int	num_decoders;
+		struct ir_raw_event	events[IR_DEBUG_SAMPLES];
+		char		symbols[IR_DEBUG_DECODERS][IR_DEBUG_SAMPLES];
+		u64		decoder_protos[IR_DEBUG_DECODERS];
+		struct		timer_list end_timer;
+	} debug;
+#endif
 };
 
 /* macros for IR decoders */
@@ -149,6 +163,24 @@ static inline bool is_timing_event(struct ir_raw_event ev)
 
 #define TO_US(duration)			DIV_ROUND_CLOSEST((duration), 1000)
 #define TO_STR(is_pulse)		((is_pulse) ? "pulse" : "space")
+
+/* debug functions for IR encoders */
+const char *rc_protocol_name(u64 protocols);
+#ifdef CONFIG_IR_RAW_DEBUG
+int ir_debug_symbol(struct rc_dev *dev, struct ir_raw_handler *handler,
+		    char symbol);
+int ir_debug_decode(struct rc_dev *dev, struct ir_raw_event ev);
+#else
+static inline int ir_debug_symbol(struct rc_dev *dev,
+				  struct ir_raw_handler *handler, char symbol)
+{
+	return -ENODEV;
+}
+static inline int ir_debug_decode(struct rc_dev *dev, struct ir_raw_event ev)
+{
+	return -ENODEV;
+}
+#endif
 
 /*
  * Routines from rc-raw.c to be used internally and by decoders

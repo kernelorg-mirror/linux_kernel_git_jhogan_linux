@@ -804,6 +804,27 @@ static struct {
 };
 
 /**
+ * struct rc_protocol_name - Return a name of a specified protocol mask.
+ * @protocols:	Mask of protocols.
+ *
+ * This function is for raw waveform debug output, so it doesn't need to
+ * completely describe the protocol mask.
+ *
+ * Returns:	A string describing (at least partly) the protocols in
+ *		@protocols.
+ */
+const char *rc_protocol_name(u64 protocols)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(proto_names); ++i)
+		if (protocols & proto_names[i].type)
+			return proto_names[i].name;
+	return NULL;
+}
+EXPORT_SYMBOL_GPL(rc_protocol_name);
+
+/**
  * struct rc_filter_attribute - Device attribute relating to a filter type.
  * @attr:	Device attribute.
  * @type:	Filter type.
