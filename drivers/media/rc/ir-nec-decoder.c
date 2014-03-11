@@ -38,6 +38,8 @@ enum nec_state {
 	STATE_TRAILER_SPACE,
 };
 
+static struct ir_raw_handler nec_handler;
+
 /**
  * ir_nec_decode() - Decode one NEC pulse or space
  * @dev:	the struct rc_dev descriptor of the device
@@ -88,6 +90,7 @@ static int ir_nec_decode(struct rc_dev *dev, struct ir_raw_event ev)
 
 		if (eq_margin(ev.duration, NEC_HEADER_SPACE, NEC_UNIT)) {
 			data->state = STATE_BIT_PULSE;
+			ir_debug_symbol(dev, &nec_handler, 'H');
 			return 0;
 		} else if (eq_margin(ev.duration, NEC_REPEAT_SPACE, NEC_UNIT / 2)) {
 			if (!dev->keypressed) {
@@ -119,6 +122,7 @@ static int ir_nec_decode(struct rc_dev *dev, struct ir_raw_event ev)
 		if (data->necx_repeat && data->count == NECX_REPEAT_BITS &&
 			geq_margin(ev.duration,
 			NEC_TRAILER_SPACE, NEC_UNIT / 2)) {
+				ir_debug_symbol(dev, &nec_handler, 'R');
 				IR_dprintk(1, "Repeat last key\n");
 				rc_repeat(dev);
 				data->state = STATE_INACTIVE;
@@ -133,6 +137,7 @@ static int ir_nec_decode(struct rc_dev *dev, struct ir_raw_event ev)
 		else if (!eq_margin(ev.duration, NEC_BIT_0_SPACE, NEC_UNIT / 2))
 			break;
 		data->count++;
+		ir_debug_symbol(dev, &nec_handler, '0' + (data->bits & 1));
 
 		if (data->count == NEC_NBITS)
 			data->state = STATE_TRAILER_PULSE;
@@ -191,6 +196,7 @@ static int ir_nec_decode(struct rc_dev *dev, struct ir_raw_event ev)
 
 		rc_keydown(dev, RC_TYPE_NEC, scancode, 0);
 		data->state = STATE_INACTIVE;
+		ir_debug_symbol(dev, &nec_handler, 'E');
 		return 0;
 	}
 
