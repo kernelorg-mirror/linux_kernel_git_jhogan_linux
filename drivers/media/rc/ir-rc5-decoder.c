@@ -39,6 +39,8 @@ enum rc5_state {
 	STATE_FINISHED,
 };
 
+static struct ir_raw_handler rc5_handler;
+
 /**
  * ir_rc5_decode() - Decode one RC-5 pulse or space
  * @dev:	the struct rc_dev descriptor of the device
@@ -95,6 +97,7 @@ again:
 		data->bits <<= 1;
 		if (!ev.pulse)
 			data->bits |= 1;
+		ir_debug_symbol(dev, &rc5_handler, '0' + (data->bits & 1));
 		data->count++;
 		data->state = STATE_BIT_END;
 		return 0;
@@ -115,6 +118,7 @@ again:
 		if (!ev.pulse && geq_margin(ev.duration, RC5X_SPACE, RC5_UNIT / 2)) {
 			data->is_rc5x = true;
 			decrease_duration(&ev, RC5X_SPACE);
+			ir_debug_symbol(dev, &rc5_handler, 'X');
 		} else
 			data->is_rc5x = false;
 		data->state = STATE_BIT_START;
@@ -174,6 +178,7 @@ again:
 
 		rc_keydown(dev, protocol, scancode, toggle);
 		data->state = STATE_INACTIVE;
+		ir_debug_symbol(dev, &rc5_handler, 'E');
 		return 0;
 	}
 
