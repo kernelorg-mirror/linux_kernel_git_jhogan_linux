@@ -36,6 +36,8 @@ enum sharp_state {
 	STATE_TRAILER_SPACE,
 };
 
+static struct ir_raw_handler sharp_handler;
+
 /**
  * ir_sharp_decode() - Decode one Sharp pulse or space
  * @dev:	the struct rc_dev descriptor of the device
@@ -99,6 +101,7 @@ static int ir_sharp_decode(struct rc_dev *dev, struct ir_raw_event ev)
 				    SHARP_BIT_0_PERIOD, SHARP_BIT_PULSE * 2))
 			break;
 		data->count++;
+		ir_debug_symbol(dev, &sharp_handler, '0' + (data->bits & 0x1));
 
 		if (data->count == SHARP_NBITS ||
 		    data->count == SHARP_NBITS * 2)
@@ -135,6 +138,7 @@ static int ir_sharp_decode(struct rc_dev *dev, struct ir_raw_event ev)
 			break;
 
 		data->state = STATE_BIT_PULSE;
+		ir_debug_symbol(dev, &sharp_handler, 'X');
 
 		return 0;
 
@@ -164,6 +168,7 @@ static int ir_sharp_decode(struct rc_dev *dev, struct ir_raw_event ev)
 
 		rc_keydown(dev, RC_TYPE_SHARP, scancode, 0);
 		data->state = STATE_INACTIVE;
+		ir_debug_symbol(dev, &sharp_handler, 'E');
 		return 0;
 	}
 
