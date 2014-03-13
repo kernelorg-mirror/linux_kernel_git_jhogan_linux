@@ -36,6 +36,8 @@ enum jvc_state {
 	STATE_CHECK_REPEAT,
 };
 
+static struct ir_raw_handler jvc_handler;
+
 /**
  * ir_jvc_decode() - Decode one JVC pulse or space
  * @dev:	the struct rc_dev descriptor of the device
@@ -86,6 +88,7 @@ again:
 			break;
 
 		data->state = STATE_BIT_PULSE;
+		ir_debug_symbol(dev, &jvc_handler, 'H');
 		return 0;
 
 	case STATE_BIT_PULSE:
@@ -111,6 +114,7 @@ again:
 		else
 			break;
 		data->count++;
+		ir_debug_symbol(dev, &jvc_handler, '0' + (data->bits & 0x1));
 
 		if (data->count == JVC_NBITS)
 			data->state = STATE_TRAILER_PULSE;
@@ -143,9 +147,11 @@ again:
 			rc_keydown(dev, RC_TYPE_JVC, scancode, data->toggle);
 			data->first = false;
 			data->old_bits = data->bits;
+			ir_debug_symbol(dev, &jvc_handler, 'E');
 		} else if (data->bits == data->old_bits) {
 			IR_dprintk(1, "JVC repeat\n");
 			rc_repeat(dev);
+			ir_debug_symbol(dev, &jvc_handler, 'R');
 		} else {
 			IR_dprintk(1, "JVC invalid repeat msg\n");
 			break;
