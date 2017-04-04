@@ -51,6 +51,16 @@
 	cond;						\
 })
 
+/* Fill a buffer with increasing values */
+static void *memfill(void *dst, u8 val, size_t len)
+{
+	u8 *ptr = dst;
+
+	for (; len > 0; --len)
+		*(ptr++) = 0x80 | val++;
+	return dst;
+}
+
 static int __init test_user_copy_init(void)
 {
 	int ret = 0;
@@ -58,6 +68,7 @@ static int __init test_user_copy_init(void)
 	char __user *usermem;
 	char *bad_usermem;
 	unsigned long user_addr, n;
+	long offs, koffs, len, index;
 	u8 val_u8;
 	u16 val_u16;
 	u32 val_u32;
@@ -69,7 +80,7 @@ static int __init test_user_copy_init(void)
 	if (!kmem)
 		return -ENOMEM;
 
-	user_addr = vm_mmap(NULL, 0, PAGE_SIZE * 2,
+	user_addr = vm_mmap(NULL, 0, PAGE_SIZE * 4,
 			    PROT_READ | PROT_WRITE | PROT_EXEC,
 			    MAP_ANONYMOUS | MAP_PRIVATE, 0);
 	if (user_addr >= (unsigned long)(TASK_SIZE)) {
@@ -78,20 +89,143 @@ static int __init test_user_copy_init(void)
 		return -ENOMEM;
 	}
 
+	vm_munmap(user_addr, PAGE_SIZE);
+	vm_munmap(user_addr + PAGE_SIZE*3, PAGE_SIZE);
+	user_addr += PAGE_SIZE;
+
 	usermem = (char __user *)user_addr;
 	bad_usermem = (char *)user_addr;
 
 	/*
 	 * Legitimate usage: none of these copies should fail.
 	 */
-	memset(kmem, 0x3a, PAGE_SIZE * 2);
-	ret |= test(0, n = copy_to_user(usermem, kmem, PAGE_SIZE),
+	memfill(kmem, 0, PAGE_SIZE * 2);
+	ret |= test(0, n = copy_to_user(usermem, kmem, PAGE_SIZE*2),
 		    "legitimate copy_to_user failed to write %lu bytes", n);
-	memset(kmem, 0x0, PAGE_SIZE);
+	memset(kmem, 0x7f, PAGE_SIZE);
 	ret |= test(0, n = copy_from_user(kmem, usermem, PAGE_SIZE),
 		    "legitimate copy_from_user failed to read %lu bytes", n);
 	ret |= test(0, memcmp(kmem, kmem + PAGE_SIZE, PAGE_SIZE),
 		    "legitimate usercopy failed to copy data");
+
+	/*
+	 * Partially valid mappings: should only perform a partial copy.
+	 */
+	for (koffs = 0; koffs <= 7; ++koffs) {
+		memset(kmem + PAGE_SIZE, 0x7f, koffs);
+		for (offs = 1; offs <= 256; ++offs) {
+			memset(kmem + PAGE_SIZE + koffs, 0x7f,
+			       PAGE_SIZE - koffs);
+			for (len = 0; len <= 256; ++len) {
+				index = koffs + PAGE_SIZE + len - 1;
+				if (len > offs)
+					kmem[index] = 0;
+				else if (len)
+					kmem[index] = 0x80 | (-offs + len - 1);
+				memset(kmem, 0x7f, PAGE_SIZE);
+				/*
+				 * kmem:
+				 *  0x7f * PAGE_SIZE
+				 *
+				 *  0x7f * koffs
+				 *  0x80|i * offs
+				 *  0x00 * len - offs
+				 *  0x7f * PAGE_SIZE - len - koffs
+				 */
+				ret |= test(max_t(long, len - offs, 0),
+					n = copy_from_user(kmem + koffs,
+							   usermem + PAGE_SIZE*2
+								- offs,
+							   len),
+					"partial copy_from_user (offs %ld, koffs %ld, len %ld) failed to read %lu bytes instead of %ld",
+					offs, koffs, len, n, len - offs);
+				ret |= test(0,
+					memcmp(kmem, kmem + PAGE_SIZE, koffs),
+					"partial copy_from_user (offs %ld, koffs %ld, len %ld, ret %lu) overwrote poison before kmem",
+					offs, koffs, len, n);
+				ret |= test(0,
+					memcmp(kmem + koffs,
+					       kmem + PAGE_SIZE + koffs,
+					       len - n),
+					"partial copy_from_user (offs %ld, koffs %ld, len %ld, ret %lu) failed to copy data",
+					offs, koffs, len, n);
+				ret |= test(0,
+					memcmp(kmem + koffs + offs,
+					       kmem + PAGE_SIZE + koffs + offs,
+					       n),
+					"partial copy_from_user (offs %ld, koffs %ld, len %ld, ret %lu) failed to zero data",
+					offs, koffs, len, n);
+				ret |= test(0,
+					memcmp(kmem + koffs + len,
+					       kmem + PAGE_SIZE + koffs + len,
+					       PAGE_SIZE - koffs - len),
+					"partial copy_from_user (offs %ld, koffs %ld, len %ld, ret %lu) overwrote poison after kmem",
+					offs, koffs, len, n);
+			}
+			if (need_resched())
+				schedule();
+		}
+	}
+	memfill(kmem, 0, PAGE_SIZE);
+	for (koffs = 0; koffs <= 7; ++koffs) {
+		for (offs = 1; offs <= 256; ++offs) {
+			for (len = 0; len <= 256; ++len) {
+				ret |= test(max_t(long, len - offs, 0),
+					n = copy_to_user(usermem + PAGE_SIZE*2
+								- offs,
+							 kmem + koffs,
+							 len),
+					"partial copy_to_user (offs %ld, koffs %ld, len %ld) failed to write %lu bytes instead of %ld",
+					offs, koffs, len, n, len - offs);
+				/* Read back what was written to check */
+				ret |= test(max_t(long, len - offs, 0),
+					n = copy_from_user(kmem + PAGE_SIZE,
+							   usermem + PAGE_SIZE*2
+								- offs,
+							   len),
+					"partial checking copy_from_user (offs %ld, koffs %ld, len %ld) failed to read %lu bytes instead of %ld",
+					offs, koffs, len, n, len - offs);
+				ret |= test(0,
+					memcmp(kmem + koffs,
+					       kmem + PAGE_SIZE,
+					       len - n),
+					"partial copy_to_user or copy_from_user (offs %ld, koffs %ld, len %ld, ret %lu) mismatch",
+					offs, koffs, len, n);
+			}
+			if (need_resched())
+				schedule();
+		}
+	}
+
+	/*
+	 * Partially valid mappings starting invalid: shouldn't copy anything.
+	 */
+	memset(kmem + PAGE_SIZE, 0x0, PAGE_SIZE);
+	for (koffs = 0; koffs <= 7; ++koffs) {
+		for (offs = 1; offs <= 256; ++offs) {
+			for (len = 0; len <= 256; ++len) {
+				ret |= test(len,
+					    n = copy_from_user(kmem + koffs,
+							       usermem - offs,
+							       len),
+					    "early copy_from_user (offs %ld, koffs %ld, len %ld) failed to read %lu bytes instead of %lu",
+					    offs, koffs, len, n, len);
+				ret |= test(0, memcmp(kmem + koffs,
+						      kmem + PAGE_SIZE,
+						      n),
+					    "early copy_from_user (offs %lu, koffs %ld, len %ld, ret %lu) failed to zero data",
+					    offs, offs, len, n);
+				ret |= test(len,
+					    n = copy_to_user(usermem - offs,
+							     kmem + koffs,
+							     len),
+					    "early copy_to_user (offs %ld, koffs %ld, len %ld) failed to read %lu bytes instead of %lu",
+					    offs, koffs, len, n, len);
+			}
+			if (need_resched())
+				schedule();
+		}
+	}
 
 #define test_legit(size, check)						  \
 	do {								  \
